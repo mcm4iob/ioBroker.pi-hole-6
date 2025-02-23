@@ -1,0 +1,11 @@
+{
+    "i18n": true,
+    "type": "panel",
+    "items": {
+        "option2": {
+            "type": "text",
+            "label": "option2",
+            "newLine": true
+        }
+    }
+}

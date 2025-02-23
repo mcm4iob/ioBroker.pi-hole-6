@@ -1,0 +1,112 @@
+{
+    "common": {
+        "name": "pi-hole-6",
+        "version": "0.0.1",
+        "news": {
+            "0.0.1": {
+                "en": "initial release",
+                "de": "Erstveröffentlichung",
+                "ru": "Начальная версия",
+                "pt": "lançamento inicial",
+                "nl": "Eerste uitgave",
+                "fr": "Première version",
+                "it": "Versione iniziale",
+                "es": "Versión inicial",
+                "pl": "Pierwsze wydanie",
+                "uk": "Початкова версія",
+                "zh-cn": "首次出版"
+            }
+        },
+        "titleLang": {
+            "en": "About Adapter for cotrolling pi-hole in ioBroker smarthome for pi-hole 6 and newer",
+            "de": "About Adapter for cotrolling pi-hole in ioBroker smarthome for pi-hole 6 and newer",
+            "ru": "About Adapter for cotrolling pi-hole in ioBroker smarthome for pi-hole 6 and newer",
+            "pt": "About Adapter for cotrolling pi-hole in ioBroker smarthome for pi-hole 6 and newer",
+            "nl": "About Adapter for cotrolling pi-hole in ioBroker smarthome for pi-hole 6 and newer",
+            "fr": "About Adapter for cotrolling pi-hole in ioBroker smarthome for pi-hole 6 and newer",
+            "it": "About Adapter for cotrolling pi-hole in ioBroker smarthome for pi-hole 6 and newer",
+            "es": "About Adapter for cotrolling pi-hole in ioBroker smarthome for pi-hole 6 and newer",
+            "pl": "About Adapter for cotrolling pi-hole in ioBroker smarthome for pi-hole 6 and newer",
+            "uk": "About Adapter for cotrolling pi-hole in ioBroker smarthome for pi-hole 6 and newer",
+            "zh-cn": "About Adapter for cotrolling pi-hole in ioBroker smarthome for pi-hole 6 and newer"
+        },
+        "desc": {
+            "en": "pi-hole-6",
+            "de": "pi-hole-6",
+            "ru": "pi-hole-6",
+            "pt": "pi-hole-6",
+            "nl": "pi-hole-6",
+            "fr": "pi-hole-6",
+            "it": "pi-hole-6",
+            "es": "pi-hole-6",
+            "pl": "pi-hole-6",
+            "uk": "pi-hole-6",
+            "zh-cn": "pi-hole-6"
+        },
+        "authors": [
+            "Martin M. <mcm57@gmx.at>"
+        ],
+        "keywords": [
+            "ioBroker",
+            "template",
+            "Smart Home",
+            "home automation"
+        ],
+        "licenseInformation": {
+            "type": "free",
+            "license": "MIT"
+        },
+        "platform": "Javascript/Node.js",
+        "icon": "pi-hole-6.png",
+        "enabled": true,
+        "extIcon": "https://raw.githubusercontent.com/mcm1957/ioBroker.pi-hole-6/main/admin/pi-hole-6.png",
+        "readme": "https://github.com/mcm1957/ioBroker.pi-hole-6/blob/main/README.md",
+        "loglevel": "info",
+        "tier": 3,
+        "mode": "daemon",
+        "type": "general",
+        "compact": true,
+        "connectionType": "local",
+        "dataSource": "poll",
+        "adminUI": {
+            "config": "json"
+        },
+        "dependencies": [
+            {
+                "js-controller": ">=6.0.11"
+            }
+        ],
+        "globalDependencies": [
+            {
+                "admin": "7.0.23"
+            }
+        ]
+    },
+    "native": {
+        "option2": "42"
+    },
+    "objects": [],
+    "instanceObjects": [
+        {
+            "_id": "info",
+            "type": "channel",
+            "common": {
+                "name": "Information"
+            },
+            "native": {}
+        },
+        {
+            "_id": "info.connection",
+            "type": "state",
+            "common": {
+                "role": "indicator.connected",
+                "name": "Device or service connected",
+                "type": "boolean",
+                "read": true,
+                "write": false,
+                "def": false
+            },
+            "native": {}
+        }
+    ]
+}

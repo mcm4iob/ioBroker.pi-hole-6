@@ -1,0 +1,42 @@
+{
+    "expert": "yes",
+    "cli": false,
+    "adapterName": "pi-hole-6",
+    "title": "About Adapter for cotrolling pi-hole in ioBroker smarthome for pi-hole 6 and newer",
+    "keywords": "",
+    "contributors": "",
+    "features": [
+        "adapter"
+    ],
+    "adminFeatures": [],
+    "type": "general",
+    "startMode": "daemon",
+    "connectionType": "local",
+    "dataSource": "poll",
+    "connectionIndicator": "yes",
+    "adapterSettings": [
+        {
+            "key": "option2",
+            "defaultValue": "42",
+            "inputType": "text"
+        }
+    ],
+    "language": "TypeScript",
+    "adminUi": "json",
+    "releaseScript": "yes",
+    "indentation": "Space (4)",
+    "quotes": "single",
+    "tools": [
+        "ESLint",
+        "type checking"
+    ],
+    "authorName": "Martin M.",
+    "authorGithub": "mcm1957",
+    "authorEmail": "mcm57@gmx.at",
+    "license": "MIT License",
+    "nodeVersion": "20",
+    "gitRemoteProtocol": "HTTPS",
+    "dependabot": "yes",
+    "target": "github",
+    "creatorVersion": "2.6.5"
+}
