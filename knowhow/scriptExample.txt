@@ -1,0 +1,174 @@
+https://forum.iobroker.net/topic/77096/skript-pihole
+
+//Version 1.0.1
+//26.09.2024
+//Ersteller Ro75.
+ 
+//Voraussetzungen (Version 1.0.0 getestet mit)
+//NodeJS: 20.x
+//Javascript-Adapter: 8.7.6
+//Admin-Adapter: 7.0.23
+//JS-Controller: 6.0.11
+ 
+//piHole Version 5 (Pi-hole v5.18.3 FTL v5.25.2 Web Interface v5.21)
+ 
+ 
+//Im Javascript-Adapter einzutragen (Zusätzliche NPM-Module) - siehe Punkt 2 der Vorarbeiten
+const moment        = require("moment");
+ 
+const sIP           = 'xxx.xxx.xxx.xxx'; //anpassen an eigenes System
+const sMainPath     = '0_userdata.0.piHole.'; //Zentraler Datenpunkt zur Datenablage
+const sMainPathS    = sMainPath+'summary.'; //Zentraler Datenpunkt zur Datenablage (Unterordner Summary)
+const sMainPathQ    = sMainPath+'QueryTypes.'; //Zentraler Datenpunkt zur Datenablage (Unterordner QueryTypes)
+ 
+//piHole >> Settings >> API >> Show API token: ist anzupassen - siehe Punkt 3 der Vorarbeiten
+const sToken        = '06e1de4fd03d033e7xxxxxxxxxxxxxxxxxxxxx6f94a26454acaba40e1a84e532';
+ 
+function Initalisierung(){
+    createState(sMainPath+'json_summary', '', {name: 'summary',type: 'string', def: '[]', read: true, write: true, desc: 'JSON'});
+    createState(sMainPath+'json_getQueryTypes', '', {name: 'getQueryTypes',type: 'string', def: '[]', read: true, write: true, desc: 'JSON'});
+    createState(sMainPath+'json_domains_over_time', '', {name: 'domains_over_time',type: 'string', def: '[]', read: true, write: true, desc: 'JSON'});
+    createState(sMainPath+'Grafana_JSON', '', {name: 'Grafana_JSON',type: 'string', def: '[]', read: true, write: true, desc: 'JSON'});
+ 
+    createState(sMainPathS+'domains_being_blocked', 0, {name: 'domains_being_blocked',type: 'number', read: true, write: true});
+    createState(sMainPathS+'dns_queries_today', 0, {name: 'dns_queries_today',type: 'number', read: true, write: true});
+    createState(sMainPathS+'ads_blocked_today', 0, {name: 'ads_blocked_today',type: 'number', read: true, write: true});
+    createState(sMainPathS+'ads_percentage_today', 0, {name: 'ads_percentage_today',type: 'number', read: true, write: true});
+    createState(sMainPathS+'unique_domains', 0, {name: 'unique_domains',type: 'number', read: true, write: true});
+    createState(sMainPathS+'queries_forwarded', 0, {name: 'queries_forwarded',type: 'number', read: true, write: true});
+    createState(sMainPathS+'queries_cached', 0, {name: 'queries_cached',type: 'number', read: true, write: true});
+    createState(sMainPathS+'clients_ever_seen', 0, {name: 'clients_ever_seen',type: 'number', read: true, write: true});
+    createState(sMainPathS+'unique_clients', 0, {name: 'unique_clients',type: 'number', read: true, write: true});
+    createState(sMainPathS+'dns_queries_all_types', 0, {name: 'dns_queries_all_types',type: 'number', read: true, write: true});
+    createState(sMainPathS+'reply_UNKNOWN', 0, {name: 'reply_UNKNOWN',type: 'number', read: true, write: true});
+    createState(sMainPathS+'reply_NODATA', 0, {name: 'reply_NODATA',type: 'number', read: true, write: true});
+    createState(sMainPathS+'reply_NXDOMAIN', 0, {name: 'reply_NXDOMAIN',type: 'number', read: true, write: true});
+    createState(sMainPathS+'reply_CNAME', 0, {name: 'reply_CNAME',type: 'number', read: true, write: true});
+    createState(sMainPathS+'reply_IP', 0, {name: 'reply_IP',type: 'number', read: true, write: true});
+    createState(sMainPathS+'reply_RRNAME', 0, {name: 'reply_RRNAME',type: 'number', read: true, write: true});
+    createState(sMainPathS+'reply_SERVFAIL', 0, {name: 'reply_SERVFAIL',type: 'number', read: true, write: true});
+    createState(sMainPathS+'reply_REFUSED', 0, {name: 'reply_REFUSED',type: 'number', read: true, write: true});
+    createState(sMainPathS+'reply_NOTIMP', 0, {name: 'reply_NOTIMP',type: 'number', read: true, write: true});
+    createState(sMainPathS+'reply_OTHER', 0, {name: 'reply_OTHER',type: 'number', read: true, write: true});
+    createState(sMainPathS+'reply_DNSSEC', 0, {name: 'reply_DNSSEC',type: 'number', read: true, write: true});
+    createState(sMainPathS+'reply_NONE', 0, {name: 'reply_NONE',type: 'number', read: true, write: true});
+    createState(sMainPathS+'reply_BLOB', 0, {name: 'reply_BLOB',type: 'number', read: true, write: true});
+    createState(sMainPathS+'dns_queries_all_replies', 0, {name: 'dns_queries_all_replies',type: 'number', read: true, write: true});
+ 
+    createState(sMainPathQ+'A(IPv4)', 0, {name: 'A (IPv4)',type: 'number', read: true, write: true});
+    createState(sMainPathQ+'AAAA(IPv6)', 0, {name: 'AAAA (IPv6)',type: 'number', read: true, write: true});
+    createState(sMainPathQ+'ANY', 0, {name: 'ANY',type: 'number', read: true, write: true});
+    createState(sMainPathQ+'SRV', 0, {name: 'SRV',type: 'number', read: true, write: true});
+    createState(sMainPathQ+'SOA', 0, {name: 'SOA',type: 'number', read: true, write: true});
+    createState(sMainPathQ+'PTR', 0, {name: 'PTR',type: 'number', read: true, write: true});
+    createState(sMainPathQ+'TXT', 0, {name: 'TXT',type: 'number', read: true, write: true});
+    createState(sMainPathQ+'NAPTR', 0, {name: 'NAPTR',type: 'number', read: true, write: true});
+    createState(sMainPathQ+'MX', 0, {name: 'MX',type: 'number', read: true, write: true});
+    createState(sMainPathQ+'DS', 0, {name: 'DS',type: 'number', read: true, write: true});
+    createState(sMainPathQ+'RRSIG', 0, {name: 'RRSIG',type: 'number', read: true, write: true});
+    createState(sMainPathQ+'DNSKEY', 0, {name: 'DNSKEY',type: 'number', read: true, write: true});
+    createState(sMainPathQ+'NS', 0, {name: 'NS',type: 'number', read: true, write: true});
+    createState(sMainPathQ+'OTHER', 0, {name: 'OTHER',type: 'number', read: true, write: true});
+    createState(sMainPathQ+'SVCB', 0, {name: 'SVCB',type: 'number', read: true, write: true});
+    createState(sMainPathQ+'HTTPS', 0, {name: 'HTTPS',type: 'number', read: true, write: true});
+ 
+    //erster Datenabruf
+    piHoleDaten();
+}
+//START
+Initalisierung();
+ 
+//automatisierte Datenabfrage - das Intervall sollte NICHT weniger als 20 Sekunden betragen!
+schedule('*/20 * * * * *', piHoleDaten);
+ 
+ 
+function piHoleDaten() {
+    httpGet('http://'+sIP+'/admin/api.php?summary&auth='+sToken, { timeout: 4000 }, (error, response) => {
+        if (!error  && response.statusCode == 200) {
+            setState(sMainPath+'json_summary', JSON.stringify(JSON.parse(response.data)), true);
+        }    
+    })
+    httpGet('http://'+sIP+'/admin/api.php?getQueryTypes&auth='+sToken, { timeout: 4000 }, (error, response) => {
+        if (!error  && response.statusCode == 200) {
+            setState(sMainPath+'json_getQueryTypes', JSON.stringify(JSON.parse(response.data)), true);
+        }    
+    })
+    httpGet('http://'+sIP+'/admin/api.php?overTimeData10mins&auth='+sToken, { timeout: 4000 }, (error, response) => {
+        if (!error  && response.statusCode == 200) {
+            var info = JSON.parse(response.data);
+            setState(sMainPath+'json_domains_over_time', '['+JSON.stringify(info.domains_over_time)+']', true);
+        }    
+    })
+    piHoleDatenAuswertenSummary();
+    piHoleDatenAuswertenQueryTypes();
+}
+ 
+function piHoleDatenAuswertenSummary(){
+    var abc = JSON.parse(getState(sMainPath+'json_summary').val);
+ 
+    setState(sMainPathS+'domains_being_blocked', RegFilter(abc.domains_being_blocked), true);
+    setState(sMainPathS+'dns_queries_today', RegFilter(abc.dns_queries_today), true);
+    setState(sMainPathS+'ads_blocked_today', RegFilter(abc.ads_blocked_today), true);
+    setState(sMainPathS+'ads_percentage_today', RegFilter(abc.ads_percentage_today), true);
+    setState(sMainPathS+'unique_domains', RegFilter(abc.unique_domains), true);
+    setState(sMainPathS+'queries_forwarded', RegFilter(abc.queries_forwarded), true);
+    setState(sMainPathS+'queries_cached', RegFilter(abc.queries_cached), true);
+    setState(sMainPathS+'clients_ever_seen', RegFilter(abc.clients_ever_seen), true);
+    setState(sMainPathS+'unique_clients', RegFilter(abc.unique_clients), true);
+    setState(sMainPathS+'dns_queries_all_types', RegFilter(abc.dns_queries_all_types), true);
+    setState(sMainPathS+'reply_UNKNOWN', RegFilter(abc.reply_UNKNOWN), true);
+    setState(sMainPathS+'reply_NODATA', RegFilter(abc.reply_NODATA), true);
+    setState(sMainPathS+'reply_NXDOMAIN', RegFilter(abc.reply_NXDOMAIN), true);
+    setState(sMainPathS+'reply_CNAME', RegFilter(abc.reply_CNAME), true);
+    setState(sMainPathS+'reply_IP', RegFilter(abc.reply_IP), true);
+    setState(sMainPathS+'reply_RRNAME', RegFilter(abc.reply_RRNAME), true);
+    setState(sMainPathS+'reply_SERVFAIL', RegFilter(abc.reply_SERVFAIL), true);
+    setState(sMainPathS+'reply_REFUSED', RegFilter(abc.reply_REFUSED), true);
+    setState(sMainPathS+'reply_NOTIMP', RegFilter(abc.reply_NOTIMP), true);
+    setState(sMainPathS+'reply_OTHER', RegFilter(abc.reply_OTHER), true);
+    setState(sMainPathS+'reply_DNSSEC', RegFilter(abc.reply_DNSSEC), true);
+    setState(sMainPathS+'reply_NONE', RegFilter(abc.reply_NONE), true);
+    setState(sMainPathS+'reply_BLOB', RegFilter(abc.reply_BLOB), true);
+    setState(sMainPathS+'dns_queries_all_replies', RegFilter(abc.dns_queries_all_replies), true);
+}
+ 
+function piHoleDatenAuswertenQueryTypes(){
+    let abc = JSON.parse(getState(sMainPath+'json_getQueryTypes').val);
+ 
+    setState(sMainPathQ+'A(IPv4)', Number(abc.querytypes["A (IPv4)"]), true);
+    setState(sMainPathQ+'AAAA(IPv6)', Number(abc.querytypes["AAAA (IPv6)"]), true);
+    setState(sMainPathQ+'ANY', Number(abc.querytypes.ANY), true);
+    setState(sMainPathQ+'SRV', Number(abc.querytypes.SRV), true);
+    setState(sMainPathQ+'SOA', Number(abc.querytypes.SOA), true);
+    setState(sMainPathQ+'PTR', Number(abc.querytypes.PTR), true);
+    setState(sMainPathQ+'TXT', Number(abc.querytypes.TXT), true);
+    setState(sMainPathQ+'NAPTR', Number(abc.querytypes.NAPTR), true);
+    setState(sMainPathQ+'MX', Number(abc.querytypes.MX), true);
+    setState(sMainPathQ+'DS', Number(abc.querytypes.DS), true);
+    setState(sMainPathQ+'RRSIG', Number(abc.querytypes.RRSIG), true);
+    setState(sMainPathQ+'DNSKEY', Number(abc.querytypes.DNSKEY), true);
+    setState(sMainPathQ+'NS', Number(abc.querytypes.NS), true);
+    setState(sMainPathQ+'OTHER', Number(abc.querytypes.OTHER), true);
+    setState(sMainPathQ+'SVCB', Number(abc.querytypes.SVCB), true);
+    setState(sMainPathQ+'HTTPS', Number(abc.querytypes.HTTPS), true);
+}
+ 
+function RegFilter(vValue=''){
+    return Number(vValue.replace(/,/g, ""));
+}
+ 
+ 
+//hier kommen nur Daten aller 10 Minuten - daher nicht ungeduldig werden bis der DP gefüllt bzw. aktualisiert wird!
+on(sMainPath+'json_domains_over_time', function(dp) {
+    let ConsumList = [];
+    var text = dp.state.val.split(',');
+    for (let i = 0; i <= text.length-1; i++) {
+        let startTime = moment((text[i].split(':')[0].replace('"','').replace('"','').replace('[{',''))*1000);
+        ConsumList.push({
+            label: startTime,
+            value: parseFloat(text[i].split(':')[1])
+        })
+    }
+    setState(sMainPath+'Grafana_JSON', JSON.stringify(ConsumList), true);
+    ConsumList = [];
+});
