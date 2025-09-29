@@ -1,3 +1,4 @@
 build/
 **/.eslintrc.js
 admin/words.js
+prime-demo.js
