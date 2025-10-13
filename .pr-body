@@ -1,0 +1,5 @@
+This PR adds the file .commitinfo to .gitignore.
+
+---
+
+**Template**: blockCommitInfo
