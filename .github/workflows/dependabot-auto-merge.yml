@@ -29,6 +29,8 @@ jobs:
             2>/dev/null || echo "{}")
           
           # Define required status checks
+          # NOTE: These must match the job names from test-and-release.yml
+          # If the test matrix changes, update these check names accordingly
           REQUIRED_CHECKS='[
             {"context": "check-and-lint", "app_id": -1},
             {"context": "adapter-tests (20.x, ubuntu-latest)", "app_id": -1},
@@ -78,7 +80,8 @@ jobs:
 
   auto-merge:
     needs: ensure-branch-protection
-    if: github.actor == 'dependabot[bot]' && (success() || failure())
+    # Run even if branch protection setup fails (e.g., due to permissions)
+    if: github.actor == 'dependabot[bot]' && always()
     runs-on: ubuntu-latest
     steps:
       - name: Fetch Dependabot metadata
