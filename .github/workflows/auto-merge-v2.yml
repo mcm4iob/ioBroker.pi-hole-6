@@ -136,37 +136,6 @@ jobs:
         with:
           ref: ${{ steps.pr-details.outputs.base }}
       
-      - name: Check if security update
-        if: steps.check-dependabot.outputs.is_dependabot == 'true'
-        id: security-check
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const prNumber = ${{ steps.extract-pr.outputs.pr_number }};
-            
-            // Check PR labels for security indicators
-            const { data: pr } = await github.rest.pulls.get({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: prNumber
-            });
-            
-            const labels = pr.labels.map(l => l.name.toLowerCase());
-            const isSecurity = labels.some(l => l.includes('security'));
-            
-            // Also check PR body for security mentions
-            const body = pr.body || '';
-            const hasSecurityMention = body.toLowerCase().includes('security') || 
-                                       body.toLowerCase().includes('vulnerability') ||
-                                       body.toLowerCase().includes('cve-');
-            
-            const isSecurityUpdate = isSecurity || hasSecurityMention;
-            
-            core.setOutput('is_security', isSecurityUpdate.toString());
-            console.log(`Is security update: ${isSecurityUpdate}`);
-            
-            return isSecurityUpdate;
-      
       - name: Read and parse auto-merge configuration
         if: steps.check-dependabot.outputs.is_dependabot == 'true'
         id: read-config
@@ -177,7 +146,7 @@ jobs:
             echo "Configuration file $CONFIG_FILE not found"
             echo "Using default rules:"
             echo "- Patch updates: always merge"
-            echo "- Minor updates: only for devDependencies and security updates"
+            echo "- Minor updates: only for devDependencies"
             echo "- Major updates: never merge"
             echo "config_exists=false" >> $GITHUB_OUTPUT
             echo "config_json=[]" >> $GITHUB_OUTPUT
@@ -202,12 +171,10 @@ jobs:
           script: |
             const updateType = '${{ steps.metadata.outputs.update_type }}';
             const dependencyType = '${{ steps.metadata.outputs.dependency_type }}';
-            const isSecurity = '${{ steps.security-check.outputs.is_security }}' === 'true';
             const configExists = '${{ steps.read-config.outputs.config_exists }}' === 'true';
             
             console.log(`Update type: ${updateType}`);
             console.log(`Dependency type: ${dependencyType}`);
-            console.log(`Is security: ${isSecurity}`);
             console.log(`Config exists: ${configExists}`);
             
             let shouldMerge = false;
@@ -234,17 +201,15 @@ jobs:
                     depTypeMatches = false;
                   }
                   
-                  // Check update type
+                  // Check update type (only semver: types are supported)
                   let updateTypeMatches = false;
                   if (match.update_type) {
                     const matchType = match.update_type;
                     if (matchType.startsWith('semver:')) {
                       const semverType = matchType.replace('semver:', '');
                       updateTypeMatches = (updateType === semverType);
-                    } else if (matchType.startsWith('security:')) {
-                      const securityType = matchType.replace('security:', '');
-                      updateTypeMatches = isSecurity && (updateType === securityType);
                     }
+                    // Note: security: prefix is no longer supported
                   }
                   
                   if (depTypeMatches && updateTypeMatches) {
@@ -263,12 +228,12 @@ jobs:
                 shouldMerge = true;
                 console.log('Default rule: Patch update - will merge');
               } else if (updateType === 'minor') {
-                // Merge minor updates for devDependencies or security updates
-                if (dependencyType === 'development' || isSecurity) {
+                // Merge minor updates for devDependencies only
+                if (dependencyType === 'development') {
                   shouldMerge = true;
-                  console.log('Default rule: Minor update for devDependency or security - will merge');
+                  console.log('Default rule: Minor update for devDependency - will merge');
                 } else {
-                  console.log('Default rule: Minor update for production dependency (not security) - will NOT merge');
+                  console.log('Default rule: Minor update for production dependency - will NOT merge');
                 }
               } else if (updateType === 'major') {
                 // Never merge major updates
