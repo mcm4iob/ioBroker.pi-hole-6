@@ -18,17 +18,17 @@
             }
         },
         "titleLang": {
-            "en": "Controlling pi-hole in ioBroker smarthome for pi-hole 6 and newer",
-            "de": "Controlling pi-hole in ioBroker smarthome for pi-hole 6 and newer",
-            "ru": "Controlling pi-hole in ioBroker smarthome for pi-hole 6 and newer",
-            "pt": "Controlling pi-hole in ioBroker smarthome for pi-hole 6 and newer",
-            "nl": "Controlling pi-hole in ioBroker smarthome for pi-hole 6 and newer",
-            "fr": "Controlling pi-hole in ioBroker smarthome for pi-hole 6 and newer",
-            "it": "Controlling pi-hole in ioBroker smarthome for pi-hole 6 and newer",
-            "es": "Controlling pi-hole in ioBroker smarthome for pi-hole 6 and newer",
-            "pl": "Controlling pi-hole in ioBroker smarthome for pi-hole 6 and newer",
-            "uk": "Controlling pi-hole in ioBroker smarthome for pi-hole 6 and newer",
-            "zh-cn": "Controlling pi-hole in ioBroker smarthome for pi-hole 6 and newer"
+            "en": "Controlling pi-hole 6 and newer",
+            "de": "Controlling pi-hole 6 and newer",
+            "ru": "Controlling pi-hole 6 and newer",
+            "pt": "Controlling pi-hole 6 and newer",
+            "nl": "Controlling pi-hole 6 and newer",
+            "fr": "Controlling pi-hole 6 and newer",
+            "it": "Controlling pi-hole 6 and newer",
+            "es": "Controlling pi-hole 6 and newer",
+            "pl": "Controlling pi-hole 6 and newer",
+            "uk": "Controlling pi-hole 6 and newer",
+            "zh-cn": "Controlling pi-hole 6 and newer"
         },
         "desc": {
             "en": "pi-hole-6",
