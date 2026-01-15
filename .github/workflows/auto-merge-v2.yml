@@ -214,7 +214,7 @@ jobs:
             
             return isSecurityUpdate;
       
-      - name: Read auto-merge configuration
+      - name: Read and parse auto-merge configuration
         if: steps.check-dependabot.outputs.is_dependabot == 'true'
         id: read-config
         run: |
@@ -227,10 +227,15 @@ jobs:
             echo "- Minor updates: only for devDependencies and security updates"
             echo "- Major updates: never merge"
             echo "config_exists=false" >> $GITHUB_OUTPUT
+            echo "config_json=[]" >> $GITHUB_OUTPUT
           else
             echo "Configuration file found"
             echo "config_exists=true" >> $GITHUB_OUTPUT
             cat "$CONFIG_FILE"
+            
+            # Convert YAML to JSON for easier parsing (compact, single line)
+            CONFIG_JSON=$(python3 -c "import yaml, json; print(json.dumps(yaml.safe_load(open('$CONFIG_FILE'))))")
+            echo "config_json=$CONFIG_JSON" >> $GITHUB_OUTPUT
           fi
       
       - name: Decide if should auto-merge
@@ -239,9 +244,6 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const fs = require('fs');
-            const yaml = require('js-yaml');
-            
             const updateType = '${{ steps.update-type.outputs.update_type }}';
             const dependencyType = '${{ steps.dependency-type.outputs.dependency_type }}';
             const isSecurity = '${{ steps.security-check.outputs.is_security }}' === 'true';
@@ -255,10 +257,10 @@ jobs:
             let shouldMerge = false;
             
             if (configExists) {
-              // Read and parse configuration
+              // Read and parse configuration from JSON
               try {
-                const configContent = fs.readFileSync('.github/auto-merge.yml', 'utf8');
-                const config = yaml.load(configContent);
+                const configJson = `${{ steps.read-config.outputs.config_json }}`;
+                const config = JSON.parse(configJson);
                 
                 console.log('Configuration:', JSON.stringify(config, null, 2));
                 
