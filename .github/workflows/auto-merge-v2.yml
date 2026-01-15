@@ -1,0 +1,439 @@
+# Automatically merge Dependabot PRs V2
+# This workflow handles automatic merging of Dependabot PRs based on configuration
+
+name: Auto-Merge Dependabot PRs V2
+
+on:
+  # Trigger when a PR is opened or updated
+  # WARNING: This needs to be run in the PR base, DO NOT build untrusted code in this action
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+  
+  # Allow manual workflow dispatch
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number (e.g., 345) or PR URL to process'
+        required: true
+        type: string
+
+jobs:
+  auto-merge:
+    runs-on: ubuntu-latest
+    # Only run if actor is dependabot or if manually triggered
+    if: github.event_name == 'workflow_dispatch' || github.actor == 'dependabot[bot]'
+    
+    permissions:
+      contents: write
+      pull-requests: write
+      
+    steps:
+      - name: Extract PR number
+        id: extract-pr
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            # Manual trigger - extract PR number from input
+            PR_INPUT="${{ github.event.inputs.pr_number }}"
+            # Check if input is a URL or just a number
+            if [[ "$PR_INPUT" =~ ^https?:// ]]; then
+              # Extract number from URL (e.g., https://github.com/owner/repo/pull/345)
+              PR_NUMBER=$(echo "$PR_INPUT" | grep -oP '(?<=pull/)\d+')
+            else
+              # Already a number
+              PR_NUMBER="$PR_INPUT"
+            fi
+          else
+            # Automatic trigger - use PR number from event
+            PR_NUMBER="${{ github.event.pull_request.number }}"
+          fi
+          echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
+          echo "Processing PR #$PR_NUMBER"
+      
+      - name: Get PR details
+        id: pr-details
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = ${{ steps.extract-pr.outputs.pr_number }};
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber
+            });
+            
+            core.setOutput('author', pr.user.login);
+            core.setOutput('title', pr.title);
+            core.setOutput('base', pr.base.ref);
+            core.setOutput('head', pr.head.ref);
+            core.setOutput('head_sha', pr.head.sha);
+            
+            return pr;
+      
+      - name: Check if PR is from Dependabot
+        id: check-dependabot
+        run: |
+          AUTHOR="${{ steps.pr-details.outputs.author }}"
+          if [ "$AUTHOR" != "dependabot[bot]" ]; then
+            echo "PR #${{ steps.extract-pr.outputs.pr_number }} was not created by Dependabot (author: $AUTHOR)"
+            echo "is_dependabot=false" >> $GITHUB_OUTPUT
+          else
+            echo "PR #${{ steps.extract-pr.outputs.pr_number }} was created by Dependabot"
+            echo "is_dependabot=true" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Checkout repository
+        if: steps.check-dependabot.outputs.is_dependabot == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.pr-details.outputs.base }}
+      
+      - name: Parse PR title for dependency info
+        if: steps.check-dependabot.outputs.is_dependabot == 'true'
+        id: parse-dependabot
+        run: |
+          TITLE="${{ steps.pr-details.outputs.title }}"
+          echo "PR Title: $TITLE"
+          
+          # Parse Dependabot PR title format:
+          # "Bump <package> from <old-version> to <new-version>"
+          # "Bump <package> from <old-version> to <new-version> in <directory>"
+          
+          # Extract package name
+          PACKAGE=$(echo "$TITLE" | sed -n 's/^Bump \([^ ]*\) from .*/\1/p')
+          
+          # Extract versions
+          OLD_VERSION=$(echo "$TITLE" | sed -n 's/^Bump .* from \([^ ]*\) to .*/\1/p')
+          NEW_VERSION=$(echo "$TITLE" | sed -n 's/^Bump .* from [^ ]* to \([^ ]*\).*/\1/p')
+          
+          echo "package=$PACKAGE" >> $GITHUB_OUTPUT
+          echo "old_version=$OLD_VERSION" >> $GITHUB_OUTPUT
+          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          
+          echo "Package: $PACKAGE"
+          echo "Old Version: $OLD_VERSION"
+          echo "New Version: $NEW_VERSION"
+      
+      - name: Determine update type
+        if: steps.check-dependabot.outputs.is_dependabot == 'true'
+        id: update-type
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const oldVer = '${{ steps.parse-dependabot.outputs.old_version }}';
+            const newVer = '${{ steps.parse-dependabot.outputs.new_version }}';
+            const packageName = '${{ steps.parse-dependabot.outputs.package }}';
+            
+            // Remove 'v' prefix if present
+            const cleanOld = oldVer.replace(/^v/, '');
+            const cleanNew = newVer.replace(/^v/, '');
+            
+            // Parse semver
+            const parseVersion = (ver) => {
+              const match = ver.match(/^(\d+)\.(\d+)\.(\d+)/);
+              if (!match) return null;
+              return {
+                major: parseInt(match[1]),
+                minor: parseInt(match[2]),
+                patch: parseInt(match[3])
+              };
+            };
+            
+            const oldParts = parseVersion(cleanOld);
+            const newParts = parseVersion(cleanNew);
+            
+            let updateType = 'unknown';
+            if (oldParts && newParts) {
+              if (newParts.major > oldParts.major) {
+                updateType = 'major';
+              } else if (newParts.minor > oldParts.minor) {
+                updateType = 'minor';
+              } else if (newParts.patch > oldParts.patch) {
+                updateType = 'patch';
+              }
+            }
+            
+            core.setOutput('update_type', updateType);
+            console.log(`Update type: ${updateType}`);
+            
+            return updateType;
+      
+      - name: Check if dependency is production or development
+        if: steps.check-dependabot.outputs.is_dependabot == 'true'
+        id: dependency-type
+        run: |
+          PACKAGE="${{ steps.parse-dependabot.outputs.package }}"
+          
+          # Check package.json for dependency type
+          if [ -f "package.json" ]; then
+            IS_PROD=$(jq -r --arg pkg "$PACKAGE" '.dependencies // {} | has($pkg)' package.json)
+            IS_DEV=$(jq -r --arg pkg "$PACKAGE" '.devDependencies // {} | has($pkg)' package.json)
+            
+            if [ "$IS_PROD" == "true" ]; then
+              echo "dependency_type=production" >> $GITHUB_OUTPUT
+              echo "Dependency type: production"
+            elif [ "$IS_DEV" == "true" ]; then
+              echo "dependency_type=development" >> $GITHUB_OUTPUT
+              echo "Dependency type: development"
+            else
+              echo "dependency_type=unknown" >> $GITHUB_OUTPUT
+              echo "Dependency type: unknown (not found in package.json)"
+            fi
+          else
+            echo "dependency_type=unknown" >> $GITHUB_OUTPUT
+            echo "package.json not found"
+          fi
+      
+      - name: Check if security update
+        if: steps.check-dependabot.outputs.is_dependabot == 'true'
+        id: security-check
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = ${{ steps.extract-pr.outputs.pr_number }};
+            
+            // Check PR labels for security indicators
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber
+            });
+            
+            const labels = pr.labels.map(l => l.name.toLowerCase());
+            const isSecurity = labels.some(l => l.includes('security'));
+            
+            // Also check PR body for security mentions
+            const body = pr.body || '';
+            const hasSecurityMention = body.toLowerCase().includes('security') || 
+                                       body.toLowerCase().includes('vulnerability') ||
+                                       body.toLowerCase().includes('cve-');
+            
+            const isSecurityUpdate = isSecurity || hasSecurityMention;
+            
+            core.setOutput('is_security', isSecurityUpdate.toString());
+            console.log(`Is security update: ${isSecurityUpdate}`);
+            
+            return isSecurityUpdate;
+      
+      - name: Read auto-merge configuration
+        if: steps.check-dependabot.outputs.is_dependabot == 'true'
+        id: read-config
+        run: |
+          CONFIG_FILE=".github/auto-merge.yml"
+          
+          if [ ! -f "$CONFIG_FILE" ]; then
+            echo "Configuration file $CONFIG_FILE not found"
+            echo "Using default rules:"
+            echo "- Patch updates: always merge"
+            echo "- Minor updates: only for devDependencies and security updates"
+            echo "- Major updates: never merge"
+            echo "config_exists=false" >> $GITHUB_OUTPUT
+          else
+            echo "Configuration file found"
+            echo "config_exists=true" >> $GITHUB_OUTPUT
+            cat "$CONFIG_FILE"
+          fi
+      
+      - name: Decide if should auto-merge
+        if: steps.check-dependabot.outputs.is_dependabot == 'true'
+        id: should-merge
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const yaml = require('js-yaml');
+            
+            const updateType = '${{ steps.update-type.outputs.update_type }}';
+            const dependencyType = '${{ steps.dependency-type.outputs.dependency_type }}';
+            const isSecurity = '${{ steps.security-check.outputs.is_security }}' === 'true';
+            const configExists = '${{ steps.read-config.outputs.config_exists }}' === 'true';
+            
+            console.log(`Update type: ${updateType}`);
+            console.log(`Dependency type: ${dependencyType}`);
+            console.log(`Is security: ${isSecurity}`);
+            console.log(`Config exists: ${configExists}`);
+            
+            let shouldMerge = false;
+            
+            if (configExists) {
+              // Read and parse configuration
+              try {
+                const configContent = fs.readFileSync('.github/auto-merge.yml', 'utf8');
+                const config = yaml.load(configContent);
+                
+                console.log('Configuration:', JSON.stringify(config, null, 2));
+                
+                // Check each match rule
+                for (const rule of config) {
+                  const match = rule.match;
+                  if (!match) continue;
+                  
+                  // Check dependency type
+                  let depTypeMatches = true;
+                  if (match.dependency_type === 'production' && dependencyType !== 'production') {
+                    depTypeMatches = false;
+                  }
+                  if (match.dependency_type === 'development' && dependencyType !== 'development') {
+                    depTypeMatches = false;
+                  }
+                  
+                  // Check update type
+                  let updateTypeMatches = false;
+                  if (match.update_type) {
+                    const matchType = match.update_type;
+                    if (matchType.startsWith('semver:')) {
+                      const semverType = matchType.replace('semver:', '');
+                      updateTypeMatches = (updateType === semverType);
+                    } else if (matchType.startsWith('security:')) {
+                      const securityType = matchType.replace('security:', '');
+                      updateTypeMatches = isSecurity && (updateType === securityType);
+                    }
+                  }
+                  
+                  if (depTypeMatches && updateTypeMatches) {
+                    shouldMerge = true;
+                    console.log('Match found:', match);
+                    break;
+                  }
+                }
+              } catch (err) {
+                console.error('Error reading config:', err);
+              }
+            } else {
+              // Default rules (no config file)
+              if (updateType === 'patch') {
+                // Always merge patch updates
+                shouldMerge = true;
+                console.log('Default rule: Patch update - will merge');
+              } else if (updateType === 'minor') {
+                // Merge minor updates for devDependencies or security updates
+                if (dependencyType === 'development' || isSecurity) {
+                  shouldMerge = true;
+                  console.log('Default rule: Minor update for devDependency or security - will merge');
+                } else {
+                  console.log('Default rule: Minor update for production dependency (not security) - will NOT merge');
+                }
+              } else if (updateType === 'major') {
+                // Never merge major updates
+                console.log('Default rule: Major update - will NOT merge');
+              }
+            }
+            
+            core.setOutput('should_merge', shouldMerge.toString());
+            console.log(`Decision: ${shouldMerge ? 'MERGE' : 'DO NOT MERGE'}`);
+            
+            return shouldMerge;
+      
+      - name: Log merge decision
+        if: steps.check-dependabot.outputs.is_dependabot == 'true'
+        run: |
+          if [ "${{ steps.should-merge.outputs.should_merge }}" == "true" ]; then
+            echo "✅ Decision: PR #${{ steps.extract-pr.outputs.pr_number }} WILL be auto-merged"
+          else
+            echo "❌ Decision: PR #${{ steps.extract-pr.outputs.pr_number }} will NOT be auto-merged"
+          fi
+      
+      - name: Wait for other workflows
+        if: steps.check-dependabot.outputs.is_dependabot == 'true' && steps.should-merge.outputs.should_merge == 'true'
+        id: wait-for-checks
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = ${{ steps.extract-pr.outputs.pr_number }};
+            const headSha = '${{ steps.pr-details.outputs.head_sha }}';
+            
+            console.log(`Waiting for workflows on PR #${prNumber} (SHA: ${headSha})`);
+            
+            // Wait for checks to complete
+            const maxWaitTime = 60 * 60 * 1000; // 1 hour
+            const pollInterval = 30 * 1000; // 30 seconds
+            const startTime = Date.now();
+            
+            while (Date.now() - startTime < maxWaitTime) {
+              // Get check runs for the commit
+              const { data: checkRuns } = await github.rest.checks.listForRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: headSha,
+                per_page: 100
+              });
+              
+              // Filter out this workflow
+              const otherChecks = checkRuns.check_runs.filter(check => 
+                check.name !== 'auto-merge' && 
+                check.name !== context.job
+              );
+              
+              console.log(`Found ${otherChecks.length} other checks`);
+              
+              if (otherChecks.length === 0) {
+                console.log('No other checks found, proceeding with merge');
+                core.setOutput('checks_passed', 'true');
+                return true;
+              }
+              
+              // Check status of all checks
+              const pending = otherChecks.filter(check => 
+                check.status !== 'completed'
+              );
+              
+              const failed = otherChecks.filter(check => 
+                check.status === 'completed' && check.conclusion !== 'success' && check.conclusion !== 'skipped'
+              );
+              
+              console.log(`Pending: ${pending.length}, Failed: ${failed.length}`);
+              
+              if (failed.length > 0) {
+                console.error('Some checks failed:');
+                failed.forEach(check => {
+                  console.error(`  - ${check.name}: ${check.conclusion}`);
+                });
+                core.setOutput('checks_passed', 'false');
+                core.setFailed('Some required checks failed');
+                return false;
+              }
+              
+              if (pending.length === 0) {
+                console.log('All checks completed successfully');
+                core.setOutput('checks_passed', 'true');
+                return true;
+              }
+              
+              // Wait before checking again
+              console.log(`Waiting for ${pending.length} checks to complete...`);
+              pending.forEach(check => {
+                console.log(`  - ${check.name}: ${check.status}`);
+              });
+              
+              await new Promise(resolve => setTimeout(resolve, pollInterval));
+            }
+            
+            // Timeout
+            core.setFailed('Timeout waiting for checks to complete');
+            core.setOutput('checks_passed', 'false');
+            return false;
+      
+      - name: Merge PR
+        if: |
+          steps.check-dependabot.outputs.is_dependabot == 'true' && 
+          steps.should-merge.outputs.should_merge == 'true' &&
+          steps.wait-for-checks.outputs.checks_passed == 'true'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const prNumber = ${{ steps.extract-pr.outputs.pr_number }};
+            
+            try {
+              await github.rest.pulls.merge({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: prNumber,
+                merge_method: 'squash',
+                commit_title: 'Dependabot: ${{ steps.pr-details.outputs.title }}',
+              });
+              
+              console.log(`✅ Successfully merged PR #${prNumber}`);
+            } catch (error) {
+              console.error(`Failed to merge PR #${prNumber}:`, error.message);
+              core.setFailed(error.message);
+            }
