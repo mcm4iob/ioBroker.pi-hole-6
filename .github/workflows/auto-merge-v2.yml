@@ -82,107 +82,59 @@ jobs:
             echo "is_dependabot=true" >> $GITHUB_OUTPUT
           fi
       
+      - name: Fetch Dependabot metadata
+        if: steps.check-dependabot.outputs.is_dependabot == 'true'
+        id: dependabot-metadata
+        uses: dependabot/fetch-metadata@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Extract metadata for decision making
+        if: steps.check-dependabot.outputs.is_dependabot == 'true'
+        id: metadata
+        run: |
+          # Extract update type from dependabot metadata
+          # Format: "version-update:semver-patch", "version-update:semver-minor", "version-update:semver-major"
+          UPDATE_TYPE_RAW="${{ steps.dependabot-metadata.outputs.update-type }}"
+          
+          if [[ "$UPDATE_TYPE_RAW" == *"semver-patch"* ]]; then
+            UPDATE_TYPE="patch"
+          elif [[ "$UPDATE_TYPE_RAW" == *"semver-minor"* ]]; then
+            UPDATE_TYPE="minor"
+          elif [[ "$UPDATE_TYPE_RAW" == *"semver-major"* ]]; then
+            UPDATE_TYPE="major"
+          else
+            UPDATE_TYPE="unknown"
+          fi
+          
+          echo "update_type=$UPDATE_TYPE" >> $GITHUB_OUTPUT
+          echo "Update type: $UPDATE_TYPE"
+          
+          # Extract dependency type
+          # Format: "direct:production" or "direct:development"
+          DEPENDENCY_TYPE_RAW="${{ steps.dependabot-metadata.outputs.dependency-type }}"
+          
+          if [[ "$DEPENDENCY_TYPE_RAW" == *"production"* ]]; then
+            DEPENDENCY_TYPE="production"
+          elif [[ "$DEPENDENCY_TYPE_RAW" == *"development"* ]]; then
+            DEPENDENCY_TYPE="development"
+          else
+            DEPENDENCY_TYPE="unknown"
+          fi
+          
+          echo "dependency_type=$DEPENDENCY_TYPE" >> $GITHUB_OUTPUT
+          echo "Dependency type: $DEPENDENCY_TYPE"
+          
+          # Log package information
+          echo "Package name(s): ${{ steps.dependabot-metadata.outputs.dependency-names }}"
+          echo "Previous version: ${{ steps.dependabot-metadata.outputs.previous-version }}"
+          echo "New version: ${{ steps.dependabot-metadata.outputs.new-version }}"
+      
       - name: Checkout repository
         if: steps.check-dependabot.outputs.is_dependabot == 'true'
         uses: actions/checkout@v4
         with:
           ref: ${{ steps.pr-details.outputs.base }}
-      
-      - name: Parse PR title for dependency info
-        if: steps.check-dependabot.outputs.is_dependabot == 'true'
-        id: parse-dependabot
-        run: |
-          TITLE="${{ steps.pr-details.outputs.title }}"
-          echo "PR Title: $TITLE"
-          
-          # Parse Dependabot PR title format:
-          # "Bump <package> from <old-version> to <new-version>"
-          # "Bump <package> from <old-version> to <new-version> in <directory>"
-          
-          # Extract package name
-          PACKAGE=$(echo "$TITLE" | sed -n 's/^Bump \([^ ]*\) from .*/\1/p')
-          
-          # Extract versions
-          OLD_VERSION=$(echo "$TITLE" | sed -n 's/^Bump .* from \([^ ]*\) to .*/\1/p')
-          NEW_VERSION=$(echo "$TITLE" | sed -n 's/^Bump .* from [^ ]* to \([^ ]*\).*/\1/p')
-          
-          echo "package=$PACKAGE" >> $GITHUB_OUTPUT
-          echo "old_version=$OLD_VERSION" >> $GITHUB_OUTPUT
-          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
-          
-          echo "Package: $PACKAGE"
-          echo "Old Version: $OLD_VERSION"
-          echo "New Version: $NEW_VERSION"
-      
-      - name: Determine update type
-        if: steps.check-dependabot.outputs.is_dependabot == 'true'
-        id: update-type
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const oldVer = '${{ steps.parse-dependabot.outputs.old_version }}';
-            const newVer = '${{ steps.parse-dependabot.outputs.new_version }}';
-            const packageName = '${{ steps.parse-dependabot.outputs.package }}';
-            
-            // Remove 'v' prefix if present
-            const cleanOld = oldVer.replace(/^v/, '');
-            const cleanNew = newVer.replace(/^v/, '');
-            
-            // Parse semver
-            const parseVersion = (ver) => {
-              const match = ver.match(/^(\d+)\.(\d+)\.(\d+)/);
-              if (!match) return null;
-              return {
-                major: parseInt(match[1]),
-                minor: parseInt(match[2]),
-                patch: parseInt(match[3])
-              };
-            };
-            
-            const oldParts = parseVersion(cleanOld);
-            const newParts = parseVersion(cleanNew);
-            
-            let updateType = 'unknown';
-            if (oldParts && newParts) {
-              if (newParts.major > oldParts.major) {
-                updateType = 'major';
-              } else if (newParts.minor > oldParts.minor) {
-                updateType = 'minor';
-              } else if (newParts.patch > oldParts.patch) {
-                updateType = 'patch';
-              }
-            }
-            
-            core.setOutput('update_type', updateType);
-            console.log(`Update type: ${updateType}`);
-            
-            return updateType;
-      
-      - name: Check if dependency is production or development
-        if: steps.check-dependabot.outputs.is_dependabot == 'true'
-        id: dependency-type
-        run: |
-          PACKAGE="${{ steps.parse-dependabot.outputs.package }}"
-          
-          # Check package.json for dependency type
-          if [ -f "package.json" ]; then
-            IS_PROD=$(jq -r --arg pkg "$PACKAGE" '.dependencies // {} | has($pkg)' package.json)
-            IS_DEV=$(jq -r --arg pkg "$PACKAGE" '.devDependencies // {} | has($pkg)' package.json)
-            
-            if [ "$IS_PROD" == "true" ]; then
-              echo "dependency_type=production" >> $GITHUB_OUTPUT
-              echo "Dependency type: production"
-            elif [ "$IS_DEV" == "true" ]; then
-              echo "dependency_type=development" >> $GITHUB_OUTPUT
-              echo "Dependency type: development"
-            else
-              echo "dependency_type=unknown" >> $GITHUB_OUTPUT
-              echo "Dependency type: unknown (not found in package.json)"
-            fi
-          else
-            echo "dependency_type=unknown" >> $GITHUB_OUTPUT
-            echo "package.json not found"
-          fi
       
       - name: Check if security update
         if: steps.check-dependabot.outputs.is_dependabot == 'true'
@@ -248,8 +200,8 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const updateType = '${{ steps.update-type.outputs.update_type }}';
-            const dependencyType = '${{ steps.dependency-type.outputs.dependency_type }}';
+            const updateType = '${{ steps.metadata.outputs.update_type }}';
+            const dependencyType = '${{ steps.metadata.outputs.dependency_type }}';
             const isSecurity = '${{ steps.security-check.outputs.is_security }}' === 'true';
             const configExists = '${{ steps.read-config.outputs.config_exists }}' === 'true';
             
