@@ -228,33 +228,7 @@ jobs:
             core.setOutput('match_reason', matchReason);
             
             return shouldMerge;
-      
-      - name: Log merge decision
-        run: |
-          echo ""
-          echo "=========================================="
-          echo "AUTOMERGE DECISION SUMMARY"
-          echo "=========================================="
-          echo "PR: #${{ github.event.pull_request.number }}"
-          echo "Dependency: ${{ steps.dependabot-metadata.outputs.dependency-names }}"
-          echo "Version: ${{ steps.dependabot-metadata.outputs.previous-version }} → ${{ steps.dependabot-metadata.outputs.new-version }}"
-          echo "Update Type: ${{ steps.metadata.outputs.update_type }}"
-          echo "Dependency Type: ${{ steps.metadata.outputs.dependency_type }}"
-          echo ""
-          if [ "${{ steps.should-merge.outputs.should_merge }}" == "true" ]; then
-            echo "✅ DECISION: WILL AUTOMERGE"
-            echo "REASON: ${{ steps.should-merge.outputs.match_reason }}"
-            echo ""
-            echo "Next: Waiting for other CI checks to complete..."
-          else
-            echo "❌ DECISION: WILL NOT AUTOMERGE"
-            echo "REASON: ${{ steps.should-merge.outputs.match_reason }}"
-            echo ""
-            echo "This PR requires manual review and merge."
-          fi
-          echo "=========================================="
-          echo ""
-      
+            
       - name: Wait for other workflows
         if: steps.should-merge.outputs.should_merge == 'true'
         id: wait-for-checks
