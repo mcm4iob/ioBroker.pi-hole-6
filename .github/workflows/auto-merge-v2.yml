@@ -68,7 +68,7 @@ jobs:
           echo "New version: ${{ steps.dependabot-metadata.outputs.new-version }}"
       
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ github.event.pull_request.base.ref }}
       
