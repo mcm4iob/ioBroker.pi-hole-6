@@ -8,89 +8,26 @@ on:
   # WARNING: This needs to be run in the PR base, DO NOT build untrusted code in this action
   pull_request_target:
     types: [opened, synchronize, reopened]
-  
-  # Allow manual workflow dispatch
-  workflow_dispatch:
-    inputs:
-      pr_number:
-        description: 'PR number (e.g., 345) or PR URL to process'
-        required: true
-        type: string
 
 jobs:
   auto-merge:
     runs-on: ubuntu-latest
-    # Only run if actor is dependabot or if manually triggered
-    if: github.event_name == 'workflow_dispatch' || github.actor == 'dependabot[bot]'
+    # Only run if actor is dependabot
+    if: github.actor == 'dependabot[bot]'
     
     permissions:
       contents: write
       pull-requests: write
       
     steps:
-      - name: Extract PR number
-        id: extract-pr
-        run: |
-          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            # Manual trigger - extract PR number from input
-            PR_INPUT="${{ github.event.inputs.pr_number }}"
-            # Check if input is a URL or just a number
-            if [[ "$PR_INPUT" =~ ^https?:// ]]; then
-              # Extract number from URL (e.g., https://github.com/owner/repo/pull/345)
-              # Using sed for better portability
-              PR_NUMBER=$(echo "$PR_INPUT" | sed -n 's|.*/pull/\([0-9]*\).*|\1|p')
-            else
-              # Already a number
-              PR_NUMBER="$PR_INPUT"
-            fi
-          else
-            # Automatic trigger - use PR number from event
-            PR_NUMBER="${{ github.event.pull_request.number }}"
-          fi
-          echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
-          echo "Processing PR #$PR_NUMBER"
-      
-      - name: Get PR details
-        id: pr-details
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const prNumber = ${{ steps.extract-pr.outputs.pr_number }};
-            const { data: pr } = await github.rest.pulls.get({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: prNumber
-            });
-            
-            core.setOutput('author', pr.user.login);
-            core.setOutput('title', pr.title);
-            core.setOutput('base', pr.base.ref);
-            core.setOutput('head', pr.head.ref);
-            core.setOutput('head_sha', pr.head.sha);
-            
-            return pr;
-      
-      - name: Check if PR is from Dependabot
-        id: check-dependabot
-        run: |
-          AUTHOR="${{ steps.pr-details.outputs.author }}"
-          if [ "$AUTHOR" != "dependabot[bot]" ]; then
-            echo "PR #${{ steps.extract-pr.outputs.pr_number }} was not created by Dependabot (author: $AUTHOR)"
-            echo "is_dependabot=false" >> $GITHUB_OUTPUT
-          else
-            echo "PR #${{ steps.extract-pr.outputs.pr_number }} was created by Dependabot"
-            echo "is_dependabot=true" >> $GITHUB_OUTPUT
-          fi
       
       - name: Fetch Dependabot metadata
-        if: steps.check-dependabot.outputs.is_dependabot == 'true'
         id: dependabot-metadata
         uses: dependabot/fetch-metadata@v2
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
       
       - name: Extract metadata for decision making
-        if: steps.check-dependabot.outputs.is_dependabot == 'true'
         id: metadata
         run: |
           # Extract update type from dependabot metadata
@@ -131,13 +68,11 @@ jobs:
           echo "New version: ${{ steps.dependabot-metadata.outputs.new-version }}"
       
       - name: Checkout repository
-        if: steps.check-dependabot.outputs.is_dependabot == 'true'
         uses: actions/checkout@v4
         with:
-          ref: ${{ steps.pr-details.outputs.base }}
+          ref: ${{ github.event.pull_request.base.ref }}
       
       - name: Read and parse auto-merge configuration
-        if: steps.check-dependabot.outputs.is_dependabot == 'true'
         id: read-config
         run: |
           CONFIG_FILE=".github/auto-merge.yml"
@@ -162,7 +97,6 @@ jobs:
           fi
       
       - name: Decide if should auto-merge
-        if: steps.check-dependabot.outputs.is_dependabot == 'true'
         id: should-merge
         env:
           CONFIG_JSON: ${{ steps.read-config.outputs.config_json }}
@@ -172,12 +106,23 @@ jobs:
             const updateType = '${{ steps.metadata.outputs.update_type }}';
             const dependencyType = '${{ steps.metadata.outputs.dependency_type }}';
             const configExists = '${{ steps.read-config.outputs.config_exists }}' === 'true';
+            const dependencyNames = '${{ steps.dependabot-metadata.outputs.dependency-names }}';
+            const previousVersion = '${{ steps.dependabot-metadata.outputs.previous-version }}';
+            const newVersion = '${{ steps.dependabot-metadata.outputs.new-version }}';
             
+            console.log('='.repeat(80));
+            console.log('AUTOMERGE EVALUATION');
+            console.log('='.repeat(80));
+            console.log(`PR: #${{ github.event.pull_request.number }}`);
+            console.log(`Dependency: ${dependencyNames}`);
+            console.log(`Version change: ${previousVersion} → ${newVersion}`);
             console.log(`Update type: ${updateType}`);
             console.log(`Dependency type: ${dependencyType}`);
-            console.log(`Config exists: ${configExists}`);
+            console.log(`Config file exists: ${configExists}`);
+            console.log('='.repeat(80));
             
             let shouldMerge = false;
+            let matchReason = '';
             
             if (configExists) {
               // Read and parse configuration from JSON passed via environment variable
@@ -185,20 +130,33 @@ jobs:
                 const configJson = process.env.CONFIG_JSON;
                 const config = JSON.parse(configJson);
                 
-                console.log('Configuration:', JSON.stringify(config, null, 2));
+                console.log('Configuration rules:', JSON.stringify(config, null, 2));
+                console.log('-'.repeat(80));
                 
                 // Check each match rule
+                let ruleIndex = 0;
                 for (const rule of config) {
+                  ruleIndex++;
                   const match = rule.match;
-                  if (!match) continue;
+                  if (!match) {
+                    console.log(`Rule ${ruleIndex}: Skipped (no match criteria)`);
+                    continue;
+                  }
+                  
+                  console.log(`Rule ${ruleIndex}: Checking...`);
+                  console.log(`  Expected dependency_type: ${match.dependency_type || 'any'}`);
+                  console.log(`  Expected update_type: ${match.update_type || 'any'}`);
                   
                   // Check dependency type
                   let depTypeMatches = true;
                   if (match.dependency_type === 'production' && dependencyType !== 'production') {
                     depTypeMatches = false;
-                  }
-                  if (match.dependency_type === 'development' && dependencyType !== 'development') {
+                    console.log(`  ❌ Dependency type mismatch: expected production, got ${dependencyType}`);
+                  } else if (match.dependency_type === 'development' && dependencyType !== 'development') {
                     depTypeMatches = false;
+                    console.log(`  ❌ Dependency type mismatch: expected development, got ${dependencyType}`);
+                  } else if (match.dependency_type) {
+                    console.log(`  ✅ Dependency type matches: ${dependencyType}`);
                   }
                   
                   // Check update type (only semver: types are supported)
@@ -208,63 +166,113 @@ jobs:
                     if (matchType.startsWith('semver:')) {
                       const semverType = matchType.replace('semver:', '');
                       updateTypeMatches = (updateType === semverType);
+                      if (updateTypeMatches) {
+                        console.log(`  ✅ Update type matches: ${updateType}`);
+                      } else {
+                        console.log(`  ❌ Update type mismatch: expected ${semverType}, got ${updateType}`);
+                      }
                     }
                     // Note: Only semver: prefixes are supported (e.g., semver:patch, semver:minor, semver:major)
                   }
                   
                   if (depTypeMatches && updateTypeMatches) {
                     shouldMerge = true;
-                    console.log('Match found:', match);
+                    matchReason = `Matched rule ${ruleIndex}: dependency_type=${match.dependency_type}, update_type=${match.update_type}`;
+                    console.log(`  ✅ RULE MATCHED - Will automerge`);
                     break;
+                  } else {
+                    console.log(`  ⏭️  Rule did not match`);
                   }
+                }
+                
+                if (!shouldMerge) {
+                  matchReason = 'No configuration rule matched this update';
                 }
               } catch (err) {
                 console.error('Error reading config:', err);
+                matchReason = `Configuration error: ${err.message}`;
               }
             } else {
               // Default rules (no config file)
+              console.log('Using default rules (no config file found)');
+              console.log('-'.repeat(80));
+              
               if (updateType === 'patch') {
                 // Always merge patch updates
                 shouldMerge = true;
-                console.log('Default rule: Patch update - will merge');
+                matchReason = 'Default rule: Patch updates are always merged';
+                console.log('✅ ' + matchReason);
               } else if (updateType === 'minor') {
                 // Merge minor updates for devDependencies only
                 if (dependencyType === 'development') {
                   shouldMerge = true;
-                  console.log('Default rule: Minor update for devDependency - will merge');
+                  matchReason = 'Default rule: Minor updates for devDependencies are merged';
+                  console.log('✅ ' + matchReason);
                 } else {
-                  console.log('Default rule: Minor update for production dependency - will NOT merge');
+                  matchReason = 'Default rule: Minor updates for production dependencies are not merged';
+                  console.log('❌ ' + matchReason);
                 }
               } else if (updateType === 'major') {
                 // Never merge major updates
-                console.log('Default rule: Major update - will NOT merge');
+                matchReason = 'Default rule: Major updates are never merged';
+                console.log('❌ ' + matchReason);
+              } else {
+                matchReason = `Unknown update type: ${updateType}`;
+                console.log('❌ ' + matchReason);
               }
             }
             
+            console.log('='.repeat(80));
+            console.log(`DECISION: ${shouldMerge ? '✅ WILL AUTOMERGE' : '❌ WILL NOT AUTOMERGE'}`);
+            console.log(`REASON: ${matchReason}`);
+            console.log('='.repeat(80));
+            
             core.setOutput('should_merge', shouldMerge.toString());
-            console.log(`Decision: ${shouldMerge ? 'MERGE' : 'DO NOT MERGE'}`);
+            core.setOutput('match_reason', matchReason);
             
             return shouldMerge;
       
       - name: Log merge decision
-        if: steps.check-dependabot.outputs.is_dependabot == 'true'
         run: |
+          echo ""
+          echo "=========================================="
+          echo "AUTOMERGE DECISION SUMMARY"
+          echo "=========================================="
+          echo "PR: #${{ github.event.pull_request.number }}"
+          echo "Dependency: ${{ steps.dependabot-metadata.outputs.dependency-names }}"
+          echo "Version: ${{ steps.dependabot-metadata.outputs.previous-version }} → ${{ steps.dependabot-metadata.outputs.new-version }}"
+          echo "Update Type: ${{ steps.metadata.outputs.update_type }}"
+          echo "Dependency Type: ${{ steps.metadata.outputs.dependency_type }}"
+          echo ""
           if [ "${{ steps.should-merge.outputs.should_merge }}" == "true" ]; then
-            echo "✅ Decision: PR #${{ steps.extract-pr.outputs.pr_number }} WILL be auto-merged"
+            echo "✅ DECISION: WILL AUTOMERGE"
+            echo "REASON: ${{ steps.should-merge.outputs.match_reason }}"
+            echo ""
+            echo "Next: Waiting for other CI checks to complete..."
           else
-            echo "❌ Decision: PR #${{ steps.extract-pr.outputs.pr_number }} will NOT be auto-merged"
+            echo "❌ DECISION: WILL NOT AUTOMERGE"
+            echo "REASON: ${{ steps.should-merge.outputs.match_reason }}"
+            echo ""
+            echo "This PR requires manual review and merge."
           fi
+          echo "=========================================="
+          echo ""
       
       - name: Wait for other workflows
-        if: steps.check-dependabot.outputs.is_dependabot == 'true' && steps.should-merge.outputs.should_merge == 'true'
+        if: steps.should-merge.outputs.should_merge == 'true'
         id: wait-for-checks
         uses: actions/github-script@v7
         with:
           script: |
-            const prNumber = ${{ steps.extract-pr.outputs.pr_number }};
-            const headSha = '${{ steps.pr-details.outputs.head_sha }}';
+            const prNumber = ${{ github.event.pull_request.number }};
+            const headSha = '${{ github.event.pull_request.head.sha }}';
             
-            console.log(`Waiting for workflows on PR #${prNumber} (SHA: ${headSha})`);
+            console.log('='.repeat(80));
+            console.log('WAITING FOR CI CHECKS');
+            console.log('='.repeat(80));
+            console.log(`PR: #${prNumber}`);
+            console.log(`Commit SHA: ${headSha}`);
+            console.log('='.repeat(80));
             
             // Wait for checks to complete
             const maxWaitTime = 60 * 60 * 1000; // 1 hour
@@ -286,10 +294,11 @@ jobs:
                 check.name !== context.job
               );
               
-              console.log(`Found ${otherChecks.length} other checks`);
+              console.log(`\nFound ${otherChecks.length} other check(s)`);
               
               if (otherChecks.length === 0) {
                 console.log('No other checks found, proceeding with merge');
+                console.log('='.repeat(80));
                 core.setOutput('checks_passed', 'true');
                 return true;
               }
@@ -303,48 +312,80 @@ jobs:
                 check.status === 'completed' && check.conclusion !== 'success' && check.conclusion !== 'skipped'
               );
               
-              console.log(`Pending: ${pending.length}, Failed: ${failed.length}`);
+              const successful = otherChecks.filter(check => 
+                check.status === 'completed' && (check.conclusion === 'success' || check.conclusion === 'skipped')
+              );
+              
+              console.log(`Status: ${successful.length} successful, ${pending.length} pending, ${failed.length} failed`);
               
               if (failed.length > 0) {
-                console.error('Some checks failed:');
+                console.log('\n' + '='.repeat(80));
+                console.log('❌ CHECK FAILURE DETECTED');
+                console.log('='.repeat(80));
+                console.log('The following checks failed:');
                 failed.forEach(check => {
-                  console.error(`  - ${check.name}: ${check.conclusion}`);
+                  console.log(`  ❌ ${check.name}`);
+                  console.log(`     Status: ${check.status}`);
+                  console.log(`     Conclusion: ${check.conclusion}`);
+                  console.log(`     URL: ${check.html_url}`);
                 });
+                console.log('='.repeat(80));
+                console.log('DECISION: Cannot automerge due to failed checks');
+                console.log('='.repeat(80));
                 core.setOutput('checks_passed', 'false');
-                core.setFailed('Some required checks failed');
+                core.setFailed(`${failed.length} check(s) failed - cannot automerge`);
                 return false;
               }
               
               if (pending.length === 0) {
-                console.log('All checks completed successfully');
+                console.log('\n' + '='.repeat(80));
+                console.log('✅ ALL CHECKS PASSED');
+                console.log('='.repeat(80));
+                successful.forEach(check => {
+                  console.log(`  ✅ ${check.name}: ${check.conclusion}`);
+                });
+                console.log('='.repeat(80));
+                console.log('DECISION: Proceeding with automerge');
+                console.log('='.repeat(80));
                 core.setOutput('checks_passed', 'true');
                 return true;
               }
               
               // Wait before checking again
-              console.log(`Waiting for ${pending.length} checks to complete...`);
+              console.log(`\nWaiting for ${pending.length} check(s) to complete...`);
               pending.forEach(check => {
-                console.log(`  - ${check.name}: ${check.status}`);
+                console.log(`  ⏳ ${check.name}: ${check.status}`);
               });
               
               await new Promise(resolve => setTimeout(resolve, pollInterval));
             }
             
             // Timeout
+            console.log('\n' + '='.repeat(80));
+            console.log('⏱️  TIMEOUT');
+            console.log('='.repeat(80));
+            console.log('Checks did not complete within the timeout period (1 hour)');
+            console.log('='.repeat(80));
             core.setFailed('Timeout waiting for checks to complete');
             core.setOutput('checks_passed', 'false');
             return false;
       
       - name: Merge PR
         if: |
-          steps.check-dependabot.outputs.is_dependabot == 'true' && 
           steps.should-merge.outputs.should_merge == 'true' &&
           steps.wait-for-checks.outputs.checks_passed == 'true'
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const prNumber = ${{ steps.extract-pr.outputs.pr_number }};
+            const prNumber = ${{ github.event.pull_request.number }};
+            
+            console.log('='.repeat(80));
+            console.log('MERGING PR');
+            console.log('='.repeat(80));
+            console.log(`PR: #${prNumber}`);
+            console.log(`Merge method: squash`);
+            console.log('='.repeat(80));
             
             try {
               await github.rest.pulls.merge({
@@ -354,8 +395,11 @@ jobs:
                 merge_method: 'squash',
               });
               
-              console.log(`✅ Successfully merged PR #${prNumber}`);
+              console.log('✅ Successfully merged PR #' + prNumber);
+              console.log('='.repeat(80));
             } catch (error) {
-              console.error(`Failed to merge PR #${prNumber}:`, error.message);
+              console.log('❌ Failed to merge PR #' + prNumber);
+              console.log('Error:', error.message);
+              console.log('='.repeat(80));
               core.setFailed(error.message);
             }
