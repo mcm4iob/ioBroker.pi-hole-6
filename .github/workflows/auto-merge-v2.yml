@@ -106,16 +106,13 @@ jobs:
             const updateType = '${{ steps.metadata.outputs.update_type }}';
             const dependencyType = '${{ steps.metadata.outputs.dependency_type }}';
             const configExists = '${{ steps.read-config.outputs.config_exists }}' === 'true';
-            const dependencyNames = '${{ steps.dependabot-metadata.outputs.dependency-names }}';
-            const previousVersion = '${{ steps.dependabot-metadata.outputs.previous-version }}';
-            const newVersion = '${{ steps.dependabot-metadata.outputs.new-version }}';
             
             console.log('='.repeat(80));
             console.log('AUTOMERGE EVALUATION');
             console.log('='.repeat(80));
             console.log(`PR: #${{ github.event.pull_request.number }}`);
-            console.log(`Dependency: ${dependencyNames}`);
-            console.log(`Version change: ${previousVersion} → ${newVersion}`);
+            console.log(`Dependency: ${{ steps.dependabot-metadata.outputs.dependency-names }}`);
+            console.log(`Version change: ${{ steps.dependabot-metadata.outputs.previous-version }} → ${{ steps.dependabot-metadata.outputs.new-version }}`);
             console.log(`Update type: ${updateType}`);
             console.log(`Dependency type: ${dependencyType}`);
             console.log(`Config file exists: ${configExists}`);
@@ -395,11 +392,11 @@ jobs:
                 merge_method: 'squash',
               });
               
-              console.log('✅ Successfully merged PR #' + prNumber);
+              console.log(`✅ Successfully merged PR #${prNumber}`);
               console.log('='.repeat(80));
             } catch (error) {
-              console.log('❌ Failed to merge PR #' + prNumber);
-              console.log('Error:', error.message);
+              console.log(`❌ Failed to merge PR #${prNumber}`);
+              console.log(`Error: ${error.message}`);
               console.log('='.repeat(80));
               core.setFailed(error.message);
             }
