@@ -209,7 +209,7 @@ jobs:
                       const semverType = matchType.replace('semver:', '');
                       updateTypeMatches = (updateType === semverType);
                     }
-                    // Note: security: prefix is no longer supported
+                    // Note: Only semver: prefixes are supported (e.g., semver:patch, semver:minor, semver:major)
                   }
                   
                   if (depTypeMatches && updateTypeMatches) {
