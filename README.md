@@ -106,7 +106,7 @@ Please refer to the [`dev-server` documentation](https://github.com/ioBroker/dev
 ## License
 MIT License
 
-Copyright (c) 2024 Martin M. <mcm57@gmx.at>
+Copyright (c) 2024 - 2025 Martin M. <mcm57@gmx.at>
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
