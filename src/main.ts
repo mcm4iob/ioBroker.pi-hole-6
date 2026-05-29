@@ -7,7 +7,7 @@
 import * as utils from '@iobroker/adapter-core';
 
 // Load your modules here, e.g.:
-// import * as fs from "fs";
+// import * as fs from "node:fs";
 
 class PiHole6 extends utils.Adapter {
 
